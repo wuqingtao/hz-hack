@@ -3,6 +3,9 @@
 #ifndef __TCP_SCAN_H__
 #define __TCP_SCAN_H__
 
-void tcp_scan(char* ip);
+class TcpScan {
+public:
+	void scan(const char* host, int port);
+}
 
 #endif // __TCP_SCAN_H__
