@@ -1,4 +1,4 @@
-// tcp_scan.cpp
+// tcp_full.cpp
 
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -6,14 +6,17 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <errno.h>
  
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "tcp_scan.h"
+#include "tcp_full.h"
 
-void TcpScan::scan(const char* host, int port) {
+void TcpFull::action(const char* host, int port) {
+	printf("%s:%d\n", host, port);
+	
 	// parse ip from host
 	struct hostent* he = gethostbyname(host);
 	if (!he) {
@@ -21,8 +24,12 @@ void TcpScan::scan(const char* host, int port) {
 		return;
 	}
 	
+	char ip[32];
+	inet_ntop(he->h_addrtype, he->h_addr, ip, sizeof(ip));
+	printf("%s\n", ip);
+	
 	// make socket address
-	struct socket_addr_in sa;
+	struct sockaddr_in sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sin_family = AF_INET;
 	sa.sin_addr.s_addr = ((struct in_addr *)(he->h_addr))->s_addr;
@@ -34,6 +41,7 @@ void TcpScan::scan(const char* host, int port) {
 		printf("create socket fialed: %s(errno: %d)\n", strerror(errno), errno);
 		return;
 	}
+	printf("socket created\n");
 
 	// connect
 	int err = connect(sd, (struct sockaddr*)&sa, sizeof(sa));
@@ -41,18 +49,19 @@ void TcpScan::scan(const char* host, int port) {
 		printf("connect fialed.: %s(errno: %d)\n", strerror(errno), errno);
 		return;
 	}
+	printf("connected\n");
 	
 	// receive
 	char buf[4096];
 	int len = recv(sd, buf, sizeof(buf), 0);
-	if (len == -1) {
+	if (len <= 0) {
 		printf("recv fialed.: %s(errno: %d)\n", strerror(errno), errno);
 		return;
 	}
 	
 	// print result
 	buf[len] = 0;
-	printf("recieved: %s\n", buf);
+	printf("recieved: %d %s\n", len, buf);
 	
 	// close
 	close(sd);
