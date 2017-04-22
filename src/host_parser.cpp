@@ -1,25 +1,15 @@
 // host_parser.cpp
 
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <unistd.h>
-#include <errno.h>
- 
-#include <string.h>
 #include <stdio.h>
-#include <stdlib.h>
+#include <netdb.h>
+#include <arpa/inet.h>
 
 #include "host_parser.h"
 
 void HostParser::action(const char* host) {
-	printf("host: %s\n", host);
-	
 	struct hostent* he = gethostbyname(host);
 	if (!he) {
-		printf("gethostbyname failed\n");
+		perror("gethostbyname error");
 		return;
 	}
 	
@@ -29,9 +19,8 @@ void HostParser::action(const char* host) {
 		printf("alias: %s\n", *alias);
 	}
 	
-	char ip[32];
-	for (char** addr = he->h_addr_list; *addr != NULL; ++addr) {	
-		inet_ntop(he->h_addrtype, *addr, ip, sizeof(ip));
-		printf("ip: %s\n", ip);
+	for (char** addr = he->h_addr_list; *addr != NULL; ++addr) {
+		char* ip = inet_ntoa(*(struct in_addr*)(*addr));
+		printf("addr: %s\n", ip);
 	}
 }

@@ -46,7 +46,7 @@ void TcpFull::action(const char* host, int port) {
 	// connect
 	int err = connect(sd, (struct sockaddr*)&sa, sizeof(sa));
 	if (err == -1) {
-		printf("connect fialed.: %s(errno: %d)\n", strerror(errno), errno);
+		printf("connect fialed.: %s(%d)\n", strerror(errno), errno);
 		return;
 	}
 	printf("connected\n");
