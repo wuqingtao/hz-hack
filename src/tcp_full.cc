@@ -14,7 +14,7 @@
 
 #include "tcp_full.h"
 
-void TcpFull::action(const char* host, int port) {
+void tcp_full::action(const char* host, int port) {
 	printf("%s:%d\n", host, port);
 	
 	// parse ip from host

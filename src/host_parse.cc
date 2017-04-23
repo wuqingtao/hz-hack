@@ -1,13 +1,13 @@
-// host_parser.cpp
+// host_parse.cc
 
 #include <stdio.h>
 #include <netdb.h>
 #include <errno.h>
 #include <arpa/inet.h>
 
-#include "host_parser.h"
+#include "host_parse.h"
 
-void HostParser::action(const char* host) {
+void host_parse::action(const char* host) {
 	struct hostent* he = gethostbyname(host);
 	if (!he) {
 		fprintf(stderr, "gethostbyname error");

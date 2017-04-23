@@ -5,7 +5,7 @@
 
 #include <stdint.h>
 
-class IcmpEcho {
+class icmp_echo {
 public:
 	void action(const char* host);
 	

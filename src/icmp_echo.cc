@@ -18,7 +18,7 @@
 
 #include "icmp_echo.h"
 
-void IcmpEcho::action(const char* host) {
+void icmp_echo::action(const char* host) {
 	int sd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
 	if (sd < 0) {
 		fprintf(stderr, "create socket error: %s(%d)\n", strerror(errno), errno);
@@ -75,7 +75,7 @@ void IcmpEcho::action(const char* host) {
 		min_rtt, max_rtt, (rcount > 0 ? avg_rtt / rcount : 0));
 }
 
-void IcmpEcho::initSend(char* buf) {
+void icmp_echo::initSend(char* buf) {
 	struct icmp* icmp = (struct icmp*)buf;
 	icmp->icmp_type = ICMP_ECHO;
 	icmp->icmp_code = 0;
@@ -83,7 +83,7 @@ void IcmpEcho::initSend(char* buf) {
 	icmp->icmp_id = getpid();
 }
 
-int IcmpEcho::doSend(int sd, struct in_addr addr, char* buf, int len, uint16_t seq) {
+int icmp_echo::doSend(int sd, struct in_addr addr, char* buf, int len, uint16_t seq) {
 	struct sockaddr_in sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sin_family = AF_INET;
@@ -104,7 +104,7 @@ int IcmpEcho::doSend(int sd, struct in_addr addr, char* buf, int len, uint16_t s
 	return 0;
 }
 
-int IcmpEcho::doRecv(int sd, struct in_addr addr, char* buf, int len, uint16_t seq, double& rtt) {
+int icmp_echo::doRecv(int sd, struct in_addr addr, char* buf, int len, uint16_t seq, double& rtt) {
 	struct sockaddr_in sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sin_family = AF_INET;
@@ -157,7 +157,7 @@ int IcmpEcho::doRecv(int sd, struct in_addr addr, char* buf, int len, uint16_t s
 	return 0;
 }
 
-uint16_t IcmpEcho::chksum(const char* buf, int len) { 
+uint16_t icmp_echo::chksum(const char* buf, int len) { 
    uint32_t sum = 0;
    while (len > 1)
    {

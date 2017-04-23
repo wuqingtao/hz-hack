@@ -3,7 +3,7 @@
 #ifndef __TCP_FULL_H__
 #define __TCP_FULL_H__
 
-class TcpFull {
+class tcp_full {
 public:
 	void action(const char* host, int port);
 };
