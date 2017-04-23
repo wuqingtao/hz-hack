@@ -172,8 +172,8 @@ uint16_t icmp_echo::check_sum(const char* buf, int len) {
    if (len == 1) {
        sum += *(uint8_t*)buf;
    }
-   sum = (sum >> 16) + (sum & 0xffff);
-   sum += (sum >> 16);
-   uint16_t answer = ~sum;
-   return answer;
+   while (sum >> 16) {
+	   sum = (sum & 0xffff) + (sum >> 16);
+   }
+   return (uint16_t)~(sum);
 }
