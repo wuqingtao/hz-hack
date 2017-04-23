@@ -6,6 +6,7 @@
 #include <string.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <errno.h>
 
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -20,68 +21,140 @@
 void IcmpEcho::action(const char* host) {
 	int sd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
 	if (sd < 0) {
-		perror("create socket error");
+		fprintf(stderr, "create socket error: %s(%d)\n", strerror(errno), errno);
 		return;
 	}
 	setuid(getuid());
 
+	struct timeval timeout = {5, 0}; // 5s
+    setsockopt(sd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout));
+    setsockopt(sd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+
 	struct hostent* he = gethostbyname(host);
 	if (!he) {
-		perror("gethostbyname error");
+		fprintf(stderr, "gethostbyname error\n");
 		return;
 	}
+	const char* name = he->h_name;
+	const struct in_addr* addr = (struct in_addr*)he->h_addr;
 
-	printf("PING %s (%s) %d bytes of data\n", he->h_name, inet_ntoa(*(struct in_addr*)he->h_addr), 56);
+	printf("Ping %s (%s) %d bytes of data\n", name, inet_ntoa(*addr), 56);
 	
 	struct sockaddr_in sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sin_family = AF_INET;
-	sa.sin_addr.s_addr = ((struct in_addr *)(he->h_addr))->s_addr;
+	sa.sin_addr.s_addr = addr->s_addr;
 
 	char sbuf[64];
-	char rbuf[1024];
+	char rbuf[128];
+	const int scount = 8;
+	int rcount = 0;
+	double min_rtt = 10e6, max_rtt = -1, avg_rtt = 0;
 	
-	struct icmp* sicmp = (struct icmp*)sbuf;
-	sicmp->icmp_type = ICMP_ECHO;
-	sicmp->icmp_code = 0;
-	sicmp->icmp_cksum = 0;
-	sicmp->icmp_id = getpid();
-	
-	for (int i = 0; i < 8; ++i) {
-		sicmp->icmp_seq = (uint16_t)i + 1;
-		struct timeval* stime = (struct timeval*)sicmp->icmp_data;
-		gettimeofday(stime, NULL);
-		sicmp->icmp_cksum = chksum(sbuf, sizeof(sbuf));
-
-		int slen = sendto(sd, sbuf, sizeof(sbuf), 0, (struct sockaddr*)&sa, sizeof(sa));
-		if (slen < 0) {
-			perror("sendto error");
-			continue;
+	initSend(sbuf);
+	for (uint16_t seq = 1; seq <= scount; ++seq) {
+		if (doSend(sd, *addr, sbuf, sizeof(sbuf), seq) >= 0) {
+			double rtt;
+			if (doRecv(sd, *addr, rbuf, sizeof(rbuf), seq, rtt) >= 0) {
+				++rcount;
+				avg_rtt += rtt;
+				if (rtt < min_rtt) {
+					min_rtt = rtt;
+				}
+				if (rtt > max_rtt) {
+					max_rtt = rtt;
+				}
+			}
 		}
-		
-		socklen_t salen = sizeof(sa);
-		int rlen = recvfrom(sd, rbuf, sizeof(rbuf), 0, (struct sockaddr*)&sa, &salen);
-		if (rlen < 0) {
-			perror("recvfrom error");
-			continue;
-		}
-		
-		const struct ip* rip = (struct ip *)rbuf;
-		int riplen = rip->ip_hl << 2;
-		rlen -= riplen;
-		const struct icmp* ricmp = (struct icmp*)(rbuf + riplen);
-		
-		uint8_t ttl = rip->ip_ttl;
-
-		struct timeval rtime;
-		gettimeofday(&rtime, NULL);
-		double rtt = (rtime.tv_sec * 1000 + rtime.tv_usec / 1000.0 - stime->tv_sec * 1000 - stime->tv_usec / 1000.0);
-
-		printf("%d bytes from %s icmp_seq=%d ttl=%d time=%.1fms\n",
-			rlen, inet_ntoa(rip->ip_src), ricmp->icmp_seq, ttl, rtt);
-		
 		sleep(1);
 	}
+	
+	printf("%d packets sent, %d packets received, %d(%.1f%%) packets lost\n",
+		scount, rcount, scount - rcount, (scount - rcount) * 1.0 / scount);
+	printf("min_rtt=%.3fms max_rtt=%.3fms avg_rtt=%.3fms\n",
+		min_rtt, max_rtt, (rcount > 0 ? avg_rtt / rcount : 0));
+}
+
+void IcmpEcho::initSend(char* buf) {
+	struct icmp* icmp = (struct icmp*)buf;
+	icmp->icmp_type = ICMP_ECHO;
+	icmp->icmp_code = 0;
+	icmp->icmp_cksum = 0;
+	icmp->icmp_id = getpid();
+}
+
+int IcmpEcho::doSend(int sd, struct in_addr addr, char* buf, int len, uint16_t seq) {
+	struct sockaddr_in sa;
+	memset(&sa, 0, sizeof(sa));
+	sa.sin_family = AF_INET;
+	sa.sin_addr.s_addr = addr.s_addr;
+	
+	struct icmp* icmp = (struct icmp*)buf;
+	icmp->icmp_seq = seq;
+	gettimeofday((struct timeval*)icmp->icmp_data, NULL);
+	icmp->icmp_cksum = 0;
+	icmp->icmp_cksum = chksum(buf, len);
+	
+	int ret = sendto(sd, buf, len, 0, (struct sockaddr*)&sa, sizeof(sa));
+	if (ret < 0) {
+		fprintf(stderr, "sendto error: %s(%d)\n", strerror(errno), errno);
+		return ret;
+	}
+	
+	return 0;
+}
+
+int IcmpEcho::doRecv(int sd, struct in_addr addr, char* buf, int len, uint16_t seq, double& rtt) {
+	struct sockaddr_in sa;
+	memset(&sa, 0, sizeof(sa));
+	sa.sin_family = AF_INET;
+	sa.sin_addr.s_addr = addr.s_addr;
+
+	socklen_t salen = sizeof(sa);
+	int ret = recvfrom(sd, buf, len, 0, (struct sockaddr*)&sa, &salen);
+	if (ret < 0) {
+		fprintf(stderr, "recvfrom error: %s(%d)\n", strerror(errno), errno);
+		return ret;
+	}
+	
+	const struct ip* ip = (struct ip *)buf;
+	uint8_t ttl = ip->ip_ttl;
+
+	int iplen = ip->ip_hl << 2;
+	ret -= iplen;
+	buf += iplen;
+	
+	if (ret < 16) {
+		fprintf(stderr, "recvfrom icmp length error: %d\n", ret);
+		return -1;
+	}
+	
+	const struct icmp* icmp = (struct icmp*)buf;
+	if (icmp->icmp_type != ICMP_ECHOREPLY) {
+		fprintf(stderr, "recvfrom icmp type error: %d\n", icmp->icmp_type);
+		return -1;
+		
+	}
+	
+	if (icmp->icmp_seq != seq) {
+		fprintf(stderr, "recvfrom icmp seq error: %d\n", icmp->icmp_seq);
+		return -1;
+	}
+	
+	if (icmp->icmp_id != getpid()) {
+		fprintf(stderr, "recvfrom icmp id error: 0x%08x\n", icmp->icmp_id);
+		return -1;
+	}
+	
+	struct timeval* stime = (struct timeval*)icmp->icmp_data;
+	struct timeval rtime;
+	gettimeofday(&rtime, NULL);
+	rtt = (rtime.tv_sec * 1000 + rtime.tv_usec / 1000.0 - stime->tv_sec * 1000 - stime->tv_usec / 1000.0);
+	
+	printf("%d bytes from %s icmp_seq=%d ttl=%d rtt=%.1fms\n",
+		ret, inet_ntoa(ip->ip_src), seq, ttl, rtt);
+
+	return 0;
 }
 
 uint16_t IcmpEcho::chksum(const char* buf, int len) { 
@@ -97,7 +170,6 @@ uint16_t IcmpEcho::chksum(const char* buf, int len) {
    }
    sum = (sum >> 16) + (sum & 0xffff);
    sum += (sum >> 16);
-
    uint16_t answer = ~sum;
    return answer;
 }

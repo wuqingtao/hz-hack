@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <netdb.h>
+#include <errno.h>
 #include <arpa/inet.h>
 
 #include "host_parser.h"
@@ -9,7 +10,7 @@
 void HostParser::action(const char* host) {
 	struct hostent* he = gethostbyname(host);
 	if (!he) {
-		perror("gethostbyname error");
+		fprintf(stderr, "gethostbyname error");
 		return;
 	}
 	
