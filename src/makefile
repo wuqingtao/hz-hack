@@ -1,27 +1,19 @@
-cc = gcc
-exe = hztrack
-obj = main.o host_parse.o icmp_echo.o icmp_tstamp.o tcp_syn.o tcp_full.o
+cc := gcc
+include := -I./
+cflags := 
+lflags := 
+bin := bin/hztrack
+src := $(notdir $(wildcard ./*.cc))
+obj := $(src:%.cc=obj/%.o)
 
-$(exe): $(obj)
-	$(cc) -o $(exe) $(obj)
+$(bin): $(obj)
+	@test -d bin || mkdir bin
+	$(cc) $(lflags) -o $@ $^
 
-main.o: main.cc
-	$(cc) -c main.cc
+$(obj): obj/%.o: ./%.cc
+	@test -d obj || mkdir obj
+	$(cc) $(include) $(cflags) -c $< -o $@
 
-host_parse.o: host_parse.cc
-	$(cc) -c host_parse.cc
-
-icmp_echo.o: icmp_echo.cc
-	$(cc) -c icmp_echo.cc
-
-icmp_tstamp.o: icmp_tstamp.cc
-	$(cc) -c icmp_tstamp.cc
-
-tcp_syn.o: tcp_syn.cc
-	$(cc) -c tcp_syn.cc
-
-tcp_full.o: tcp_full.cc
-	$(cc) -c tcp_full.cc
-
+.PHONY: clean
 clean:
-	rm $(exe) $(obj)
+	-rm -rf obj bin
