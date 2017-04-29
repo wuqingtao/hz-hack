@@ -2,7 +2,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <string.h>
 #include <netdb.h>
 #include <unistd.h>
@@ -52,7 +51,7 @@ void icmp_echo::action(const char* host) {
 	double min_rtt = 10e6, max_rtt = -1, avg_rtt = 0;
 	
 	init_send(sbuf);
-	for (uint16_t seq = 1; seq <= scount; ++seq) {
+	for (u_int16_t seq = 1; seq <= scount; ++seq) {
 		if (do_send(sd, *addr, sbuf, sizeof(sbuf), seq) >= 0) {
 			double rtt;
 			if (do_recv(sd, *addr, rbuf, sizeof(rbuf), seq, rtt) >= 0) {
@@ -80,24 +79,24 @@ void icmp_echo::action(const char* host) {
 }
 
 void icmp_echo::init_send(char* buf) {
-	struct icmp* icmp = (struct icmp*)buf;
-	icmp->icmp_type = ICMP_ECHO;
-	icmp->icmp_code = 0;
-	icmp->icmp_cksum = 0;
-	icmp->icmp_id = getpid();
+	struct icmphdr* icmp = (struct icmphdr*)buf;
+	icmp->type = ICMP_ECHO;
+	icmp->code = 0;
+	icmp->checksum = 0;
+	icmp->un.echo.id = getpid();
 }
 
-int icmp_echo::do_send(int sd, struct in_addr addr, char* buf, int len, uint16_t seq) {
+int icmp_echo::do_send(int sd, struct in_addr addr, char* buf, int len, u_int16_t seq) {
 	struct sockaddr_in sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sin_family = AF_INET;
 	sa.sin_addr.s_addr = addr.s_addr;
 	
-	struct icmp* icmp = (struct icmp*)buf;
-	icmp->icmp_seq = seq;
-	gettimeofday((struct timeval*)icmp->icmp_data, NULL);
-	icmp->icmp_cksum = 0;
-	icmp->icmp_cksum = check_sum(buf, len);
+	struct icmphdr* icmp = (struct icmphdr*)buf;
+	icmp->un.echo.sequence = seq;
+	gettimeofday((struct timeval*)(buf + sizeof(struct icmphdr)), NULL);
+	icmp->checksum = 0;
+	icmp->checksum = check_sum(buf, len);
 	
 	int ret = sendto(sd, buf, len, 0, (struct sockaddr*)&sa, sizeof(sa));
 	if (ret < 0) {
@@ -108,7 +107,7 @@ int icmp_echo::do_send(int sd, struct in_addr addr, char* buf, int len, uint16_t
 	return 0;
 }
 
-int icmp_echo::do_recv(int sd, struct in_addr addr, char* buf, int len, uint16_t seq, double& rtt) {
+int icmp_echo::do_recv(int sd, struct in_addr addr, char* buf, int len, u_int16_t seq, double& rtt) {
 	struct sockaddr_in sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sin_family = AF_INET;
@@ -121,10 +120,10 @@ int icmp_echo::do_recv(int sd, struct in_addr addr, char* buf, int len, uint16_t
 		return ret;
 	}
 	
-	const struct ip* ip = (struct ip *)buf;
-	uint8_t ttl = ip->ip_ttl;
+	const struct iphdr* ip = (struct iphdr *)buf;
+	u_int8_t ttl = ip->ttl;
 
-	int iplen = ip->ip_hl << 2;
+	int iplen = ip->ihl << 2;
 	ret -= iplen;
 	buf += iplen;
 	
@@ -133,47 +132,46 @@ int icmp_echo::do_recv(int sd, struct in_addr addr, char* buf, int len, uint16_t
 		return -1;
 	}
 	
-	const struct icmp* icmp = (struct icmp*)buf;
-	if (icmp->icmp_type != ICMP_ECHOREPLY) {
-		fprintf(stderr, "recvfrom icmp_type error: %d\n", icmp->icmp_type);
+	const struct icmphdr* icmp = (struct icmphdr*)buf;
+	if (icmp->type != ICMP_ECHOREPLY) {
+		fprintf(stderr, "recvfrom icmp_type error: %d\n", icmp->type);
 		return -1;
 		
 	}
 	
-	if (icmp->icmp_id != getpid()) {
-		fprintf(stderr, "recvfrom icmp_id error: 0x%08x\n", icmp->icmp_id);
+	if (icmp->un.echo.id != getpid()) {
+		fprintf(stderr, "recvfrom icmp_id error: 0x%08x\n", icmp->un.echo.id);
 		return -1;
 	}
 	
-	if (icmp->icmp_seq != seq) {
-		fprintf(stderr, "recvfrom icmp_seq error: %d\n", icmp->icmp_seq);
+	if (icmp->un.echo.sequence != seq) {
+		fprintf(stderr, "recvfrom icmp_seq error: %d\n", icmp->un.echo.sequence);
 		return -1;
 	}
 	
-	struct timeval* stime = (struct timeval*)icmp->icmp_data;
+	struct timeval* stime = (struct timeval*)(buf + sizeof(struct icmphdr));
 	struct timeval rtime;
 	gettimeofday(&rtime, NULL);
 	rtt = (rtime.tv_sec * 1000 + rtime.tv_usec / 1000.0 - stime->tv_sec * 1000 - stime->tv_usec / 1000.0);
 	
 	printf("%d bytes from %s icmp_seq=%d ttl=%d rtt=%.1fms\n",
-		ret, inet_ntoa(ip->ip_src), seq, ttl, rtt);
+		ret, inet_ntoa(*(struct in_addr*)&(ip->saddr)), seq, ttl, rtt);
 
 	return 0;
 }
 
-uint16_t icmp_echo::check_sum(const char* buf, int len) { 
-   uint32_t sum = 0;
-   while (len > 1)
-   {
-     sum += *(uint16_t*)buf;
+u_int16_t icmp_echo::check_sum(const char* buf, int len) { 
+   u_int32_t sum = 0;
+   while (len > 1) {
+     sum += *(u_int16_t*)buf;
 	 buf += 2;
      len -= 2;
    }
    if (len == 1) {
-       sum += *(uint8_t*)buf;
+       sum += *(u_int8_t*)buf;
    }
    while (sum >> 16) {
 	   sum = (sum & 0xffff) + (sum >> 16);
    }
-   return (uint16_t)~(sum);
+   return (u_int16_t)~(sum);
 }

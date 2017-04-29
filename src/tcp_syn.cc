@@ -2,7 +2,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <string.h>
 #include <netdb.h>
 #include <unistd.h>
@@ -35,8 +34,8 @@ void tcp_syn::action(const char* host, int port) {
 	setuid(getuid());
 
 	struct timeval timeout = {5, 0}; // 5s
-    setsockopt(sd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout));
-    setsockopt(sd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+	setsockopt(sd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout));
+	setsockopt(sd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
 
 	printf("tcp_syn %s (%s) %d\n", name, inet_ntoa(*addr), port);
 
@@ -46,12 +45,12 @@ void tcp_syn::action(const char* host, int port) {
 //		close(sd);
 //		return;
 //	}
-  for (int i = 0; i < 8; ++i) {
-    if (recv_acksyn(sd, addr, buf, sizeof(buf), sport, dport) < 0) {
-      close(sd);
-      return;
-    }
-  }
+	for (int i = 0; i < 1; ++i) {
+		if (recv_acksyn(sd, addr, buf, sizeof(buf), sport, dport) < 0) {
+			close(sd);
+			return;
+		}
+	}
 //	if (send_rst(sd, addr, buf, sizeof(buf), sport, dport) < 0) {
 //		close(sd);
 //		return;
@@ -81,7 +80,7 @@ int tcp_syn::send_syn(int sd, const struct in_addr* addr, char* buf, int len, in
 	
 	printf("send_syn %s source=%d dest=%d seq=%u ack_seq=%u doff=%d fin=%d syn=%d rst=%d psh=%d ack=%d urg=%d window=%d check=%d\n",
 		inet_ntoa(*addr), ntohs(tcp->source), ntohs(tcp->dest), ntohl(tcp->seq), ntohl(tcp->ack_seq),
-		tcp->doff, tcp->fin, tcp->syn, tcp->rst, tcp->psh, tcp->ack, tcp->urg, tcp->window, tcp->check);
+		tcp->doff, tcp->fin, tcp->syn, tcp->rst, tcp->psh, tcp->ack, tcp->urg, ntohs(tcp->window), tcp->check);
 
 	int ret = sendto(sd, buf, len, 0, (struct sockaddr*)&sa, sizeof(sa));
 	if (ret < 0) {
@@ -97,25 +96,28 @@ int tcp_syn::recv_acksyn(int sd, const struct in_addr* addr, char* buf, int len,
 	memset(&sa, 0, sizeof(sa));
 	sa.sin_family = AF_INET;
 	sa.sin_addr.s_addr = addr->s_addr;
-	sa.sin_port = htons(dport);
+	sa.sin_port = htons((u_int16_t)dport);
 	
 	socklen_t salen = sizeof(sa);
-  printf("recv_acksyn dst=%s port=%d len=%d\n", inet_ntoa(sa.sin_addr), ntohs(sa.sin_port), salen);
-
 	int ret = recvfrom(sd, buf, len, 0, (struct sockaddr*)&sa, &salen);
 	if (ret < 0) {
 		fprintf(stderr, "recvfrom error: %s(%d)\n", strerror(errno), errno);
 		return ret;
 	}
+	printf("recv_acksyn dst=%s port=%d len=%d\n", inet_ntoa(sa.sin_addr), ntohs(sa.sin_port), salen);
 	
-	struct ip* ip = (struct ip*)buf;
+	struct iphdr* ip = (struct iphdr*)buf;
 	struct tcphdr* tcp = (struct tcphdr*)(buf + sizeof(struct ip));
 	
-  printf("recv_acksyn dst=%s port=%d len=%d\n", inet_ntoa(sa.sin_addr), ntohs(sa.sin_port), salen);
-  printf("recv_acksyn len=%d ip_src=%s ip_dst=%s\n", ret, inet_ntoa(ip->ip_src), inet_ntoa(ip->ip_dst));
-	printf("recv_acksyn source=%d dest=%d seq=%u ack_seq=%u doff=%d fin=%d syn=%d rst=%d psh=%d ack=%d urg=%d window=%d check=%d\n",
+	char sip[32];
+	char dip[32];
+	sprintf(sip, "%s", inet_ntoa(*(struct in_addr*)&(ip->saddr)));
+	sprintf(dip, "%s", inet_ntoa(*(struct in_addr*)&(ip->daddr)));
+	printf("recv_acksyn ip: packet_len=%d saddr=%s daddr=%s\n", ret, sip, dip);
+	
+	printf("recv_acksyn tcphdr: source=%d dest=%d seq=%u ack_seq=%u doff=%d fin=%d syn=%d rst=%d psh=%d ack=%d urg=%d window=%d check=%04x\n",
 		ntohs(tcp->source), ntohs(tcp->dest), ntohl(tcp->seq), ntohl(tcp->ack_seq),
-		tcp->doff, tcp->fin, tcp->syn, tcp->rst, tcp->psh, tcp->ack, tcp->urg, tcp->window, tcp->check);
+		tcp->doff, tcp->fin, tcp->syn, tcp->rst, tcp->psh, tcp->ack, tcp->urg, ntohs(tcp->window), tcp->check);
 
 	return 0;
 }
@@ -152,19 +154,18 @@ int tcp_syn::send_rst(int sd, const struct in_addr* addr, char* buf, int len, in
 	return 0;
 }
 
-uint16_t tcp_syn::check_sum(const char* buf, int len) { 
-   uint32_t sum = 0;
-   while (len > 1)
-   {
-     sum += *(uint16_t*)buf;
+u_int16_t tcp_syn::check_sum(const char* buf, int len) { 
+   u_int32_t sum = 0;
+   while (len > 1) {
+     sum += *(u_int16_t*)buf;
 	 buf += 2;
      len -= 2;
    }
    if (len == 1) {
-       sum += *(uint8_t*)buf;
+       sum += *(u_int8_t*)buf;
    }
    while (sum >> 16) {
 	   sum = (sum & 0xffff) + (sum >> 16);
    }
-   return (uint16_t)~(sum);
+   return (u_int16_t)~(sum);
 }

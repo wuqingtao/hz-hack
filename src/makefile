@@ -1,6 +1,6 @@
 cc := gcc
 include := -I./
-cflags := 
+cflags := -Wall
 lflags := 
 bin := bin/hztrack
 src := $(notdir $(wildcard ./*.cc))

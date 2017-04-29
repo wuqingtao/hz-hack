@@ -2,7 +2,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <string.h>
 #include <netdb.h>
 #include <unistd.h>
@@ -39,17 +38,12 @@ void icmp_tstamp::action(const char* host) {
     setsockopt(sd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
 
 	printf("icmp_tstamp %s (%s)\n", name, inet_ntoa(*addr));
-	
-	struct sockaddr_in sa;
-	memset(&sa, 0, sizeof(sa));
-	sa.sin_family = AF_INET;
-	sa.sin_addr.s_addr = addr->s_addr;
 
 	char sbuf[20];
 	char rbuf[128];
 	
 	init_send(sbuf);
-	uint16_t seq = 79;
+	u_int16_t seq = 79;
 	if (do_send(sd, *addr, sbuf, sizeof(sbuf), seq) >= 0) {
 		do_recv(sd, *addr, rbuf, sizeof(rbuf), seq);
 	}
@@ -58,26 +52,26 @@ void icmp_tstamp::action(const char* host) {
 }
 
 void icmp_tstamp::init_send(char* buf) {
-	struct icmp* icmp = (struct icmp*)buf;
-	icmp->icmp_type = ICMP_TSTAMP;
-	icmp->icmp_code = 0;
-	icmp->icmp_cksum = 0;
-	icmp->icmp_id = getpid();
+	struct icmphdr* icmp = (struct icmphdr*)buf;
+	icmp->type = ICMP_TSTAMP;
+	icmp->code = 0;
+	icmp->checksum = 0;
+	icmp->un.echo.id = getpid();
 }
 
-int icmp_tstamp::do_send(int sd, struct in_addr addr, char* buf, int len, uint16_t seq) {
+int icmp_tstamp::do_send(int sd, struct in_addr addr, char* buf, int len, u_int16_t seq) {
 	struct sockaddr_in sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sin_family = AF_INET;
 	sa.sin_addr.s_addr = addr.s_addr;
 	
-	struct icmp* icmp = (struct icmp*)buf;
-	icmp->icmp_seq = seq;
+	struct icmphdr* icmp = (struct icmphdr*)buf;
+	icmp->un.echo.sequence = seq;
 	struct timeval time;
 	gettimeofday(&time, NULL);
-	icmp->icmp_otime = time.tv_sec;
-	icmp->icmp_cksum = 0;
-	icmp->icmp_cksum = check_sum(buf, len);
+	((u_int32_t*)(buf + sizeof(struct icmphdr)))[0] = time.tv_sec;
+	icmp->checksum = 0;
+	icmp->checksum = check_sum(buf, len);
 	
 	int ret = sendto(sd, buf, len, 0, (struct sockaddr*)&sa, sizeof(sa));
 	if (ret < 0) {
@@ -88,7 +82,7 @@ int icmp_tstamp::do_send(int sd, struct in_addr addr, char* buf, int len, uint16
 	return 0;
 }
 
-int icmp_tstamp::do_recv(int sd, struct in_addr addr, char* buf, int len, uint16_t seq) {
+int icmp_tstamp::do_recv(int sd, struct in_addr addr, char* buf, int len, u_int16_t seq) {
 	struct sockaddr_in sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sin_family = AF_INET;
@@ -101,54 +95,52 @@ int icmp_tstamp::do_recv(int sd, struct in_addr addr, char* buf, int len, uint16
 		return ret;
 	}
 	
-	const struct ip* ip = (struct ip *)buf;
-	uint8_t ttl = ip->ip_ttl;
-
-	int iplen = ip->ip_hl << 2;
-	ret -= iplen;
-	buf += iplen;
+	const struct iphdr* ip = (struct iphdr *)buf;
+	ret -= sizeof(struct iphdr);
+	buf += sizeof(struct iphdr);
 	
 	if (ret < 20) {
-		fprintf(stderr, "recvfrom icmp length error: %d\n", ret);
+		fprintf(stderr, "recvfrom length error: %d\n", ret);
 		return -1;
 	}
 	
-	const struct icmp* icmp = (struct icmp*)buf;
-	if (icmp->icmp_type != ICMP_TSTAMPREPLY) {
-		fprintf(stderr, "recvfrom icmp_type error: %d\n", icmp->icmp_type);
+	const struct icmphdr* icmp = (struct icmphdr*)buf;
+	if (icmp->type != ICMP_TSTAMPREPLY) {
+		fprintf(stderr, "recvfrom type error: %d\n", icmp->type);
 		return -1;
 		
 	}
 	
-	if (icmp->icmp_id != getpid()) {
-		fprintf(stderr, "recvfrom icmp_id error: 0x%08x\n", icmp->icmp_id);
+	if (icmp->un.echo.id != getpid()) {
+		fprintf(stderr, "recvfrom id error: 0x%08x\n", icmp->un.echo.id);
 		return -1;
 	}
 	
-	if (icmp->icmp_seq != seq) {
-		fprintf(stderr, "recvfrom icmp_seq error: %d\n", icmp->icmp_seq);
+	if (icmp->un.echo.sequence != seq) {
+		fprintf(stderr, "recvfrom sequence error: %d\n", icmp->un.echo.sequence);
 		return -1;
 	}
 	
-	printf("from %s otime=%u rtime=%u ttime=%u\n",
-		inet_ntoa(ip->ip_src), icmp->icmp_otime, icmp->icmp_rtime, icmp->icmp_ttime);
+	u_int32_t otime = ((u_int32_t*)(buf + sizeof(struct icmphdr)))[0];
+	u_int32_t rtime = ((u_int32_t*)(buf + sizeof(struct icmphdr)))[1];
+	u_int32_t ttime = ((u_int32_t*)(buf + sizeof(struct icmphdr)))[2];
+	printf("from %s otime=%u rtime=%u ttime=%u\n", inet_ntoa(*(struct in_addr*)&(ip->saddr)), otime, rtime, ttime);
 
 	return 0;
 }
 
-uint16_t icmp_tstamp::check_sum(const char* buf, int len) { 
-   uint32_t sum = 0;
-   while (len > 1)
-   {
-     sum += *(uint16_t*)buf;
+u_int16_t icmp_tstamp::check_sum(const char* buf, int len) { 
+   u_int32_t sum = 0;
+   while (len > 1) {
+     sum += *(u_int16_t*)buf;
 	 buf += 2;
      len -= 2;
    }
    if (len == 1) {
-       sum += *(uint8_t*)buf;
+       sum += *(u_int8_t*)buf;
    }
    while (sum >> 16) {
 	   sum = (sum & 0xffff) + (sum >> 16);
    }
-   return (uint16_t)~(sum);
+   return (u_int16_t)~(sum);
 }

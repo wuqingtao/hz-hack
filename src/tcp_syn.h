@@ -3,7 +3,7 @@
 #ifndef __TCP_SYN_H__
 #define __TCP_SYN_H__
 
-#include <stdint.h>
+#include <sys/types.h>
 
 class tcp_syn {
 public:
@@ -13,7 +13,7 @@ private:
 	int send_syn(int sd, const struct in_addr* addr, char* buf, int len, int sport, int dport);
 	int recv_acksyn(int sd, const struct in_addr* addr, char* buf, int len, int sport, int dport);
 	int send_rst(int sd, const struct in_addr* addr, char* buf, int len, int sport, int dport);
-	uint16_t check_sum(const char* buf, int len);
+	u_int16_t check_sum(const char* buf, int len);
 };
 
 #endif // __TCP_SYN_H__
