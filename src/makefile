@@ -1,6 +1,6 @@
 cc = gcc
 exe = hztrack
-obj = main.o host_parse.o icmp_echo.o icmp_tstamp.o tcp_full.o
+obj = main.o host_parse.o icmp_echo.o icmp_tstamp.o tcp_syn.o tcp_full.o
 
 $(exe): $(obj)
 	$(cc) -o $(exe) $(obj)
@@ -16,6 +16,9 @@ icmp_echo.o: icmp_echo.cc
 
 icmp_tstamp.o: icmp_tstamp.cc
 	$(cc) -c icmp_tstamp.cc
+
+tcp_syn.o: tcp_syn.cc
+	$(cc) -c tcp_syn.cc
 
 tcp_full.o: tcp_full.cc
 	$(cc) -c tcp_full.cc

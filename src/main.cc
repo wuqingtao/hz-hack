@@ -7,6 +7,7 @@
 #include "host_parse.h"
 #include "icmp_echo.h"
 #include "icmp_tstamp.h"
+#include "tcp_syn.h"
 #include "tcp_full.h"
 
 void usage();
@@ -41,6 +42,15 @@ int main(int argc, char** argv) {
 		const char* host = argv[2];
 		icmp_tstamp it;
 		it.action(host);
+	} else if (strcmp(argv[1], "tcp_syn") == 0) {
+		if (argc != 4) {
+			usage();
+			return 0;
+		}
+		const char* host = argv[2];
+		int port = atoi(argv[3]);
+		tcp_syn ts;
+		ts.action(host, port);
 	} else if (strcmp(argv[1], "tcp_full") == 0) {
 		if (argc != 4) {
 			usage();
@@ -59,8 +69,9 @@ int main(int argc, char** argv) {
 
 void usage() {
 	printf("usage:\n");
-	printf("  hztrack host_parse <host>\n");
-	printf("  hztrack icmp_echo <host/ip> <port>\n");
-	printf("  hztrack icmp_tstamp <host/ip> <port>\n");
-	printf("  hztrack tcp_full <host/ip> <port>\n");
+	printf("  ./hztrack host_parse <host>\n");
+	printf("  ./hztrack icmp_echo <host/ip>\n");
+	printf("  ./hztrack icmp_tstamp <host/ip>\n");
+	printf("  ./hztrack tcp_syn <host/ip> <port>\n");
+	printf("  ./hztrack tcp_full <host/ip> <port>\n");
 }
