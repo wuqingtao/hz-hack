@@ -94,6 +94,7 @@ int icmp_tstamp::do_recv(int sd, struct in_addr addr, char* buf, int len, u_int1
 		fprintf(stderr, "recvfrom error: %s(%d)\n", strerror(errno), errno);
 		return ret;
 	}
+	printf("recvfrom dst=%s port=%d len=%d\n", inet_ntoa(sa.sin_addr), ntohs(sa.sin_port), salen);
 	
 	const struct iphdr* ip = (struct iphdr *)buf;
 	ret -= sizeof(struct iphdr);

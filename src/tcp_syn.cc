@@ -17,14 +17,22 @@
 
 #include "tcp_syn.h"
 
-void tcp_syn::action(const char* host, int port) {
-	struct hostent* he = gethostbyname(host);
-	if (!he) {
+void tcp_syn::action(const char* shost, int sport, const char* dhost, int dport) {
+	struct hostent* sh = gethostbyname(shost);
+	if (!sh) {
 		fprintf(stderr, "gethostbyname error\n");
 		return;
 	}
-	const char* name = he->h_name;
-	const struct in_addr* addr = (struct in_addr*)he->h_addr;
+	struct in_addr saddr;
+	memcpy(&saddr, sh->h_addr, sizeof(in_addr));
+	
+	struct hostent* dh = gethostbyname(dhost);
+	if (!dh) {
+		fprintf(stderr, "gethostbyname error\n");
+		return;
+	}
+	struct in_addr daddr;
+	memcpy(&daddr, dh->h_addr, sizeof(in_addr));
 
 	int sd = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
 	if (sd < 0) {
@@ -37,121 +45,136 @@ void tcp_syn::action(const char* host, int port) {
 	setsockopt(sd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout));
 	setsockopt(sd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
 
-	printf("tcp_syn %s (%s) %d\n", name, inet_ntoa(*addr), port);
+	printf("tcp_syn from %s %d to %s %d\n", inet_ntoa(saddr), sport, inet_ntoa(daddr), dport);
 
-	int sport = 12345, dport = port;
+	u_int32_t seq = random();
+
 	char buf[128];
-//	if (send_syn(sd, addr, buf, sizeof(buf), sport, dport) < 0) {
-//		close(sd);
-//		return;
-//	}
-	for (int i = 0; i < 1; ++i) {
-		if (recv_acksyn(sd, addr, buf, sizeof(buf), sport, dport) < 0) {
-			close(sd);
-			return;
+	if (send_syn(sd, saddr, daddr, buf, sizeof(buf), sport, dport, seq) < 0) {
+		goto exit;
+	}
+	while (true) {
+		int ret = recv_acksyn(sd, saddr, daddr, buf, sizeof(buf), sport, dport, seq);
+		if (ret < 0) {
+			goto exit;
+		} else if (ret > 0) {
+			break;
 		}
 	}
-//	if (send_rst(sd, addr, buf, sizeof(buf), sport, dport) < 0) {
-//		close(sd);
-//		return;
-//	}
-	
+	if (send_rst(sd, saddr, daddr, buf, sizeof(buf), sport, dport, seq) < 0) {
+		goto exit;
+	}
+
+exit:
 	close(sd);
 }
 
-int tcp_syn::send_syn(int sd, const struct in_addr* addr, char* buf, int len, int sport, int dport) {
+int tcp_syn::send_syn(int sd, const struct in_addr saddr, const struct in_addr daddr, char* buf, int len, u_int16_t sport, u_int16_t dport, u_int32_t seq) {
+	memset(buf, 0, len);
+	
+	((u_int32_t*)buf)[0] = saddr.s_addr;
+	((u_int32_t*)(buf + 4))[0] = daddr.s_addr;
+	buf[8] = 0;
+	buf[9] = IPPROTO_TCP;
+	((u_int16_t*)(buf + 10))[0] = htons(sizeof(struct tcphdr));
+
+	struct tcphdr* tcp = (struct tcphdr*)(buf + 12);
+	tcp->source = htons(sport); 
+	tcp->dest = htons(dport);
+	tcp->seq = htonl(seq);
+	tcp->doff = sizeof(struct tcphdr) / 4;
+	tcp->syn = 1;
+	tcp->window = htons(4096);
+	tcp->check = check_sum(buf, 12 + sizeof(struct tcphdr));
+	
+	printf("send_syn to %s source=%d dest=%d seq=%u ack_seq=%u doff=%d fin=%d syn=%d rst=%d psh=%d ack=%d urg=%d window=%d check=%04x\n",
+		inet_ntoa(daddr), ntohs(tcp->source), ntohs(tcp->dest), ntohl(tcp->seq), ntohl(tcp->ack_seq),
+		tcp->doff, tcp->fin, tcp->syn, tcp->rst, tcp->psh, tcp->ack, tcp->urg, ntohs(tcp->window), tcp->check);
+
 	struct sockaddr_in sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sin_family = AF_INET;
-	sa.sin_addr.s_addr = addr->s_addr;
-	sa.sin_port = htons(dport);
+	sa.sin_addr.s_addr = daddr.s_addr;
 	
-	len = sizeof(struct tcphdr);
-	
-	struct tcphdr* tcp = (struct tcphdr*)buf;
-	memset(tcp, 0, len);
-	tcp->source = htons(sport); 
-	tcp->dest = htons(dport);
-	tcp->seq = htonl(1000000);
-	tcp->doff = len / 4;
-	tcp->syn = 1;
-	tcp->window = htons(65535);
-	tcp->check = check_sum(buf, len);
-	
-	printf("send_syn %s source=%d dest=%d seq=%u ack_seq=%u doff=%d fin=%d syn=%d rst=%d psh=%d ack=%d urg=%d window=%d check=%d\n",
-		inet_ntoa(*addr), ntohs(tcp->source), ntohs(tcp->dest), ntohl(tcp->seq), ntohl(tcp->ack_seq),
-		tcp->doff, tcp->fin, tcp->syn, tcp->rst, tcp->psh, tcp->ack, tcp->urg, ntohs(tcp->window), tcp->check);
-
-	int ret = sendto(sd, buf, len, 0, (struct sockaddr*)&sa, sizeof(sa));
+	int ret = sendto(sd, buf + 12, sizeof(struct tcphdr), 0, (struct sockaddr*)&sa, sizeof(sa));
 	if (ret < 0) {
 		fprintf(stderr, "sendto error: %s(%d)\n", strerror(errno), errno);
 		return ret;
 	}
 	
-	return 0;
+	return ret;
 }
 
-int tcp_syn::recv_acksyn(int sd, const struct in_addr* addr, char* buf, int len, int sport, int dport) {
+int tcp_syn::recv_acksyn(int sd, const struct in_addr saddr, const struct in_addr daddr, char* buf, int len, u_int16_t sport, u_int16_t dport, u_int32_t& seq) {
 	struct sockaddr_in sa;
 	memset(&sa, 0, sizeof(sa));
-	sa.sin_family = AF_INET;
-	sa.sin_addr.s_addr = addr->s_addr;
-	sa.sin_port = htons((u_int16_t)dport);
-	
 	socklen_t salen = sizeof(sa);
+
 	int ret = recvfrom(sd, buf, len, 0, (struct sockaddr*)&sa, &salen);
 	if (ret < 0) {
 		fprintf(stderr, "recvfrom error: %s(%d)\n", strerror(errno), errno);
 		return ret;
 	}
-	printf("recv_acksyn dst=%s port=%d len=%d\n", inet_ntoa(sa.sin_addr), ntohs(sa.sin_port), salen);
 	
 	struct iphdr* ip = (struct iphdr*)buf;
-	struct tcphdr* tcp = (struct tcphdr*)(buf + sizeof(struct ip));
+	struct tcphdr* tcp = (struct tcphdr*)(buf + sizeof(struct iphdr));
 	
 	char sip[32];
 	char dip[32];
 	sprintf(sip, "%s", inet_ntoa(*(struct in_addr*)&(ip->saddr)));
 	sprintf(dip, "%s", inet_ntoa(*(struct in_addr*)&(ip->daddr)));
-	printf("recv_acksyn ip: packet_len=%d saddr=%s daddr=%s\n", ret, sip, dip);
+
+	if (/*ip->saddr != addr->s_addr || dport != ntohs(tcp->source) ||*/
+		tcp->syn != 1 || tcp->ack != 1 || ntohl(tcp->ack_seq) != seq + 1) {
+//		printf("recv_acksyn filtered - ip: packet_len=%d saddr=%s daddr=%s\n", ret, sip, dip);
+		return 0;
+	}
 	
+	seq = ntohl(tcp->seq) + 1;
+
+	printf("recv_acksyn addr: dst=%s port=%d len=%d\n", inet_ntoa(sa.sin_addr), ntohs(sa.sin_port), salen);
+	printf("recv_acksyn iphdr: packet_len=%d saddr=%s daddr=%s\n", ret, sip, dip);
 	printf("recv_acksyn tcphdr: source=%d dest=%d seq=%u ack_seq=%u doff=%d fin=%d syn=%d rst=%d psh=%d ack=%d urg=%d window=%d check=%04x\n",
 		ntohs(tcp->source), ntohs(tcp->dest), ntohl(tcp->seq), ntohl(tcp->ack_seq),
 		tcp->doff, tcp->fin, tcp->syn, tcp->rst, tcp->psh, tcp->ack, tcp->urg, ntohs(tcp->window), tcp->check);
 
-	return 0;
+	return ret;
 }
 
-int tcp_syn::send_rst(int sd, const struct in_addr* addr, char* buf, int len, int sport, int dport) {
+int tcp_syn::send_rst(int sd, const struct in_addr saddr, const struct in_addr daddr, char* buf, int len, u_int16_t sport, u_int16_t dport, u_int32_t seq) {
+	memset(buf, 0, len);
+	
+	((u_int32_t*)buf)[0] = saddr.s_addr;
+	((u_int32_t*)(buf + 4))[0] = daddr.s_addr;
+	buf[8] = 0;
+	buf[9] = IPPROTO_TCP;
+	((u_int16_t*)(buf + 10))[0] = htons(sizeof(struct tcphdr));
+
+	struct tcphdr* tcp = (struct tcphdr*)(buf + 12);
+	tcp->source = htons(sport); 
+	tcp->dest = htons(dport);
+	tcp->seq = htonl(seq);
+	tcp->doff = sizeof(struct tcphdr) / 4;
+	tcp->rst = 1;
+	tcp->window = htons(4096);
+	tcp->check = check_sum(buf, 12 + sizeof(struct tcphdr));
+		
+	printf("send_rst to %s source=%d dest=%d seq=%u ack_seq=%u doff=%d fin=%d syn=%d rst=%d psh=%d ack=%d urg=%d window=%d check=%x\n",
+		inet_ntoa(daddr), ntohs(tcp->source), ntohs(tcp->dest), ntohl(tcp->seq), ntohl(tcp->ack_seq),
+		tcp->doff, tcp->fin, tcp->syn, tcp->rst, tcp->psh, tcp->ack, tcp->urg, ntohs(tcp->window), tcp->check);
+
 	struct sockaddr_in sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sin_family = AF_INET;
-	sa.sin_addr.s_addr = addr->s_addr;
-	sa.sin_port = htons(dport);
-	
-	len = sizeof(struct tcphdr);
-	
-	struct tcphdr* tcp = (struct tcphdr*)buf;
-	memset(tcp, 0, len);
-	tcp->source = htons(sport); 
-	tcp->dest = htons(dport);
-	tcp->seq = 0;
-	tcp->doff = len / 4;
-	tcp->rst = 1;
-	tcp->window = htons(65535);
-	tcp->check = check_sum(buf, len);
-		
-	printf("send_rst %s source=%d dest=%d seq=%u ack_seq=%u doff=%d fin=%d syn=%d rst=%d psh=%d ack=%d urg=%d window=%d check=%d\n",
-		inet_ntoa(*addr), ntohs(tcp->source), ntohs(tcp->dest), ntohl(tcp->seq), ntohl(tcp->ack_seq),
-		tcp->doff, tcp->fin, tcp->syn, tcp->rst, tcp->psh, tcp->ack, tcp->urg, tcp->window, tcp->check);
+	sa.sin_addr.s_addr = daddr.s_addr;
 
-	int ret = sendto(sd, buf, len, 0, (struct sockaddr*)&sa, sizeof(sa));
+	int ret = sendto(sd, buf + 12, sizeof(struct tcphdr), 0, (struct sockaddr*)&sa, sizeof(sa));
 	if (ret < 0) {
 		fprintf(stderr, "sendto error: %s(%d)\n", strerror(errno), errno);
 		return ret;
 	}
 	
-	return 0;
+	return ret;
 }
 
 u_int16_t tcp_syn::check_sum(const char* buf, int len) { 

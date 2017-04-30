@@ -43,14 +43,16 @@ int main(int argc, char** argv) {
 		icmp_tstamp it;
 		it.action(host);
 	} else if (strcmp(argv[1], "tcp_syn") == 0) {
-		if (argc != 4) {
+		if (argc != 6) {
 			usage();
 			return 0;
 		}
-		const char* host = argv[2];
-		int port = atoi(argv[3]);
+		const char* shost = argv[2];
+		int sport = atoi(argv[3]);
+		const char* dhost = argv[4];
+		int dport = atoi(argv[5]);
 		tcp_syn ts;
-		ts.action(host, port);
+		ts.action(shost, sport, dhost, dport);
 	} else if (strcmp(argv[1], "tcp_full") == 0) {
 		if (argc != 4) {
 			usage();
@@ -72,6 +74,6 @@ void usage() {
 	printf("  ./hztrack host_parse <host>\n");
 	printf("  ./hztrack icmp_echo <host/ip>\n");
 	printf("  ./hztrack icmp_tstamp <host/ip>\n");
-	printf("  ./hztrack tcp_syn <host/ip> <port>\n");
+	printf("  ./hztrack tcp_syn <local host/ip> <local port> <remote host/ip> <remote port>\n");
 	printf("  ./hztrack tcp_full <host/ip> <port>\n");
 }
