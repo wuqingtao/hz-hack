@@ -99,7 +99,7 @@ int tcp_syn::send_syn(int sd, const struct in_addr saddr, const struct in_addr d
 	tcp->window = htons(4096);
 	tcp->check = check_sum(buf, 12 + sizeof(struct tcphdr));
 	
-	printf("send syn to tcphdr: source=%d dest=%d seq=%u ack_seq=%u doff=%d fin=%d syn=%d rst=%d psh=%d ack=%d urg=%d window=%d check=%04x\n",
+	printf("send syn tcphdr: source=%d dest=%d seq=%u ack_seq=%u doff=%d fin=%d syn=%d rst=%d psh=%d ack=%d urg=%d window=%d check=%04x\n",
 		ntohs(tcp->source), ntohs(tcp->dest), ntohl(tcp->seq), ntohl(tcp->ack_seq),
 		tcp->doff, tcp->fin, tcp->syn, tcp->rst, tcp->psh, tcp->ack, tcp->urg, ntohs(tcp->window), tcp->check);
 
