@@ -92,13 +92,13 @@ int udp_full::send_packet(int sd, const struct in_addr saddr, const struct in_ad
 	((u_int32_t*)(buf + 4))[0] = daddr.s_addr;
 	buf[8] = 0;
 	buf[9] = IPPROTO_UDP;
-	((u_int16_t*)(buf + 10))[0] = htons(sizeof(struct udphdr));
+	((u_int16_t*)(buf + 10))[0] = htons(sizeof(struct udphdr) + 4);
 
 	struct udphdr* udp = (struct udphdr*)(buf + 12);
 	udp->source = htons(sport); 
 	udp->dest = htons(dport);
-	udp->len = htons(sizeof(struct udphdr));
-	udp->check = check_sum(buf, 12 + sizeof(struct udphdr));
+	udp->len = htons(sizeof(struct udphdr) + 4);
+	udp->check = check_sum(buf, 12 + sizeof(struct udphdr) + 4);
 	
 	printf("send packet udphdr: source=%d dest=%d len=%d check=%04x\n",
 		ntohs(udp->source), ntohs(udp->dest), ntohs(udp->len), udp->check);
@@ -108,7 +108,7 @@ int udp_full::send_packet(int sd, const struct in_addr saddr, const struct in_ad
 	sa.sin_family = AF_INET;
 	sa.sin_addr.s_addr = daddr.s_addr;
 	
-	int ret = sendto(sd, buf + 12, sizeof(struct udphdr), 0, (struct sockaddr*)&sa, sizeof(sa));
+	int ret = sendto(sd, buf + 12, sizeof(struct udphdr) + 4, 0, (struct sockaddr*)&sa, sizeof(sa));
 	if (ret < 0) {
 		fprintf(stderr, "sendto error: %s(%d)\n", strerror(errno), errno);
 		return ret;
