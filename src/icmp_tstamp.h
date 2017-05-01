@@ -10,9 +10,8 @@ public:
 	void action(const char* host);
 	
 private:
-	void init_send(char* buf);
-	int do_send(int sd, struct in_addr addr, char* buf, int len, u_int16_t seq);
-	int do_recv(int sd, struct in_addr addr, char* buf, int len, u_int16_t seq);
+	int send_packet(int sd, struct in_addr addr, char* buf, int len, u_int16_t seq);
+	int recv_packet(int sd, struct in_addr addr, char* buf, int len, u_int16_t seq);
 	u_int16_t check_sum(const char* buf, int len);
 };
 

@@ -31,6 +31,7 @@ void icmp_echo::action(const char* host) {
 		fprintf(stderr, "create socket error: %s(%d)\n", strerror(errno), errno);
 		return;
 	}
+	
 	setuid(getuid());
 
 	struct timeval timeout = {5, 0}; // 5s
